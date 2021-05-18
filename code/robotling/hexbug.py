@@ -185,6 +185,9 @@ class HexBug(Robotling):
       self.onboardLED.on()
       self._t = Telemetry(self.ID)
       self._t.connect()
+      # subscibe fernsteuerungs-topic
+      self._t.subscribe('control', self.on_message)
+      # neu ####################################################################
       self.onboardLED.off()
 
     # Create filters for smoothing the pitch and roll readings
@@ -199,6 +202,22 @@ class HexBug(Robotling):
 
     # Starting state
     self.state = STATE_IDLE
+
+  # NEU -------------------------------------------------------------
+
+  def on_message(self, topic, msg):
+
+    message = msg.decode("utf-8")
+    message = str(message)
+    message = message.split(",")
+    self.MotorWalk.speed = int(message[0])
+    self.MotorTurn.speed = int(message[1])
+    print(message)
+
+
+
+
+  # ---------------------------------------------------------------
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   def housekeeper(self, info=None):
@@ -264,7 +283,7 @@ class HexBug(Robotling):
         mqttd[KEY_DEBUG] = self.debug
         self.debug = []
       # ... and publish
-      self._t.publishDict(KEY_RAW, mqttd)
+      # self._t.publishDict(KEY_RAW, mqttd)
 
     # Change NeoPixel according to state
     i = self.state *3
@@ -277,266 +296,266 @@ class HexBug(Robotling):
     """
     pass
 
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  def _nextTurnDir(self, lastTurnDir):
-    if not lastTurnDir == 0:
-      # Just turned but not sucessful, therefore remember that
-      # direction
-      self.turnStats += MEM_INC if lastTurnDir > 0 else -MEM_INC
-    if self.turnStats == 0:
-      return [-1,1][random.randint(0,1)]
-    else:
-      return 1 if self.turnStats > 0 else -1
-
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  def scanForObstacleOrCliff(self):
-    """ Acquires distance data at the scan positions, currently given in motor
-        run time (in [s]). Returns -1=obstacle, 1=cliff, and 0=none.
-    """
-    bias = 0
-    isBlob = False
-
-    if cfg.DO_FIND_LIGHT:
-      bias = -self.lightDiff
-
-    elif cfg.DO_WALK_STRAIGHT:
-      # Using the compass, determine current offset from target heading and
-      # set a new bias (in [ms]) by which the head position is corrected. This
-      # is done by biasing the head direction after scanning for obstacles
-      # NOTE: NOT YET FULLY IMPLEMENTED
-      dh = self.currHead -self.cpsTargetHead
-      tb = dh *cfg.HEAD_ADJUST_FACT if abs(dh) > cfg.HEAD_ADJUST_THR else 0
-
-    # ****************************************
-    # ****************************************
-    # ****************************************
-    """
-    elif cfg.DO_FOLLOW_BLOB:
-      # TODO
-      xy = self.Camera.getBestBlob(5, 0.60)
-      isBlob = not xy is None
-    """
-    # ****************************************
-    # ****************************************
-    # ****************************************
-
-    o = False
-    c = False
-    l = len(self._scanPos) -1
-    self.ServoRangingSensor.angle = cfg.SCAN_DIST_SERVO
-    if self.nRangingSensor == 1:
-      # Only one ranging sensor, therefore scan the head back and forth
-      # (as determined in `hexbug_config.py`) to cover the ground in front
-      # of the robot
-      for iPos, Pos in enumerate(self._scanPos):
-        # Turn head into scan position; in the first turn account for a
-        # turning bias resulting from the find light behaviour
-        b = 0 if iPos < l else bias
-        self.MotorTurn.speed = cfg.SPEED_SCAN *(-1,1)[Pos < 0]
-        self.spin_ms(abs(Pos) +b)
-        self.MotorTurn.speed = 0
-        # Measure distance for this position ...
-        d = int(self.RangingSensor[0].range_cm)
-        self._distData[self._iScanPos[iPos]] = d
-        # ... check if distance within the danger-free range
-        o = o or (d < cfg.DIST_OBST_CM)
-        c = c or (d > cfg.DIST_CLIFF_CM)
-    else:
-      # Several ranging sensors installed in an array, therefore head scans
-      # are not needed
-      for iPos in range(self.nRangingSensor):
-        # Read distance from this ranging sensor ...
-        d = int(self.RangingSensor[iPos].range_cm)
-        if cfg.DIST_SMOOTH >= 2:
-          d = int(self._distDataFilters[iPos].mean(d))
-        self._distData[iPos] = d
-        # ... check if distance within the danger-free range
-        o = o or (d < cfg.DIST_OBST_CM)
-        c = c or (d > cfg.DIST_CLIFF_CM)
-
-      if True: #not DO_FOLLOW_BLOB: #isBlob:
-        # Turn the head slighly to acount for (1) any bias that keeps the
-        # robot from walking straight and (2) any turning bias resulting from
-        # the find light behaviour
-        self.MotorTurn.speed = cfg.SPEED_SCAN *(-1,1)[cfg.IR_SCAN_BIAS_F < 0]
-        td = abs(cfg.IR_SCAN_BIAS_F *200) +bias
-        self.spin_ms(td)
-        self.MotorTurn.speed = 0
-        # Make sure that the robot waits a minimum duration before returning
-        # to the main loop
-        sd = cfg.SPEED_BACK_DELAY//3 -td
-        if sd > 0:
-          self.spin_ms(sd)
-
-    # ****************************************
-    # ****************************************
-    # ****************************************
-    """
-    if isBlob:
-      self.debug.append("{0:.2f},{1:.2f} -> {2} ({3:.2f})".format(xy[0], xy[1],
-                        "turn left" if xy[0] < 0 else "turn right",
-                        abs(xy[0]/4)))
-      print(self.debug[0])
-      #self.MotorWalk.speed = 0
-      c = 0
-      d = 0
-      if abs(xy[0]) > 0.1:
-        d = 1 if xy[0] > 0 else -1
-      self.MotorTurn.speed = int(SPEED_SCAN *d *abs(xy[0]/4) *5)
-      self.spin_ms(100)
-      self.MotorTurn.speed = 0
-    """
-    # ****************************************
-    # ****************************************
-    # ****************************************
-
-    # Remember turning bias and return result
-    self._turnBias = bias
-    return 1 if c else -1 if o else 0
-
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  def lookAround(self):
-    """ Make an appearance of "looking around"
-    """
-    # Stop all motors and change state
-    self.MotorWalk.speed = 0
-    self.MotorTurn.speed = 0
-    prevState = self.state
-    self.state = STATE_LOOKING
-    maxPit = max(cfg.MAX_DIST_SERVO, cfg.MIN_DIST_SERVO)
-
-    # Move head and IR distance sensor at random, as if looking around
-    nSacc = random.randint(4, 10)
-    yaw = 0
-    pit = cfg.SCAN_DIST_SERVO
-    try:
-      for i in range(nSacc):
-        if self.onHold:
-          break
-        dYaw = random.randint(-800, 800)
-        yaw += dYaw
-        dir  = -1 if dYaw < 0 else 1
-        pit += random.randint(-10,15)
-        pit  = min(max(0, pit), maxPit)
-        self.ServoRangingSensor.angle = pit
-        self.MotorTurn.speed = cfg.SPEED_TURN *dir
-        self.spin_ms(abs(dYaw))
-        self.MotorTurn.speed = 0
-        self.spin_ms(random.randint(0, 500))
-    finally:
-      # Stop head movement, if any, move the IR sensor back into scan
-      # position and change back state
-      self.MotorTurn.speed = 0
-      self.ServoRangingSensor.angle = cfg.SCAN_DIST_SERVO
-      self.state = prevState
-
-      # If compass is used, set new target heading
-      if cfg.DO_WALK_STRAIGHT and not cfg.DO_FIND_LIGHT:
-        self._targetHead = self.Compass.get_heading()
-
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  def lookAtBlob(self, minBlobArea, minBlobProb):
-    """ Look at (heat) blob
-    """
-    # Stop all motors and change state
-    self.MotorWalk.speed = 0
-    self.MotorTurn.speed = 0
-    prevState = self.state
-    self.state = STATE_SEEK_BLOB
-    maxPit = max(cfg.MAX_DIST_SERVO, cfg.MIN_DIST_SERVO)
-    dxy = self.Camera.resolution
-    dx2 = dxy[0]/2
-    pit = cfg.SCAN_DIST_SERVO
-    pBl = minBlobProb/100
-    xF  = TemporalFilter(3)
-    yF  = TemporalFilter(3)
-
-    # Move head towards a blob if one is detected
-    try:
-      for i in range(cfg.BLOB_ROUNDS):
-        if self.onHold:
-          break
-        xy = self.Camera.getBestBlob(minBlobArea, pBl)
-        if not xy is None:
-          # Suitable blob found
-          xBl = xF.mean(xy[0])
-          yBl = yF.mean(xy[1])
-          xdir = 0
-          if abs(xBl) > cfg.BLOB_MIN_XY_OFFS:
-            xdir = 1 if xBl > 0 else -1
-          ydir = 0
-          if abs(yBl) > cfg.BLOB_MIN_XY_OFFS:
-            ydir = cfg.BLOB_YSTEP if yBl > 0 else -cfg.BLOB_YSTEP
-          pit += ydir *abs(yBl/dx2)
-          pit = int(min(max(-maxPit, pit), maxPit))
-          self.ServoRangingSensor.angle = pit
-          ssc = cfg.SPEED_SCAN
-          self.MotorTurn.speed = int(ssc *xdir *abs(xBl/dx2) *cfg.BLOB_TSF)
-          self.spin_ms(cfg.BLOB_SPIN_MS)
-          self.MotorTurn.speed = 0
-        else:
-          self.spin_ms(cfg.BLOB_SPIN_MS)
-    finally:
-      # Stop head movement, if any, move the IR sensor back into scan
-      # position and change back state
-      self.MotorTurn.speed = 0
-      self.ServoRangingSensor.angle = cfg.SCAN_DIST_SERVO
-      self.state = prevState
-
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  def nap(self):
-    """ Take a nap
-    """
-    # Remember state, switch off motors and move sensor arm into neutral
-    prevState = self.state
-    self.state = gkb.STATE_WAKING_UP
-    self.housekeeper()
-    self.MotorWalk.speed = 0
-    self.MotorTurn.speed = 0
-    self.ServoRangingSensor.angle = 0
-
-    # Dim the NeoPixel
-    for i in range(10, -1, -1):
-      self.dimPixel(i/10.0)
-      self.spin_ms(250)
-
-    # "Drop" sensor arm
-    for p in range(0, cfg.SCAN_DIST_SERVO, -1):
-      self.ServoRangingSensor.angle = p
-      self.spin_ms(10)
-
-    # Flash NeoPixel ...
-    self.dimPixel(1.0)
-    self.spin_ms(100)
-    self.dimPixel(0.0)
-
-    # ... and enter sleep mode for a random number of seconds
-    self.sleepLightly(random.randint(cfg.NAP_FROM_S, cfg.NAP_TO_S))
-
-    # Wake up, resume previous state and move sensor arm into scan position
-    self.state = prevState
-    self.ServoRangingSensor.angle = cfg.SCAN_DIST_SERVO
-    self.housekeeper()
-
-    # Bring up NeoPixel again
-    for i in range(0, 11):
-      self.dimPixel(i/10.0)
-      self.spin_ms(250)
-
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  def getDist(self, angle=0, trials=1, channel=0):
-    """ Test function to determine the relevant IR distances.
-        Moves IR ranging sensor to "angle" and measures/prints distance
-        "trial" times.
-    """
-    self.ServoRangingSensor.angle = angle
-    self.spin_ms(200)
-    for i in range(trials):
-      self.update()
-      s = ""
-      for ir in self.RangingSensor:
-        s += "{0} ".format(ir.range_cm)
-      print(s)
-      self.spin_ms(0 if trials <= 1 else 250)
-
-# ----------------------------------------------------------------------------
+#   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   def _nextTurnDir(self, lastTurnDir):
+#     if not lastTurnDir == 0:
+#       # Just turned but not sucessful, therefore remember that
+#       # direction
+#       self.turnStats += MEM_INC if lastTurnDir > 0 else -MEM_INC
+#     if self.turnStats == 0:
+#       return [-1,1][random.randint(0,1)]
+#     else:
+#       return 1 if self.turnStats > 0 else -1
+#
+#   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   def scanForObstacleOrCliff(self):
+#     """ Acquires distance data at the scan positions, currently given in motor
+#         run time (in [s]). Returns -1=obstacle, 1=cliff, and 0=none.
+#     """
+#     bias = 0
+#     isBlob = False
+#
+#     if cfg.DO_FIND_LIGHT:
+#       bias = -self.lightDiff
+#
+#     elif cfg.DO_WALK_STRAIGHT:
+#       # Using the compass, determine current offset from target heading and
+#       # set a new bias (in [ms]) by which the head position is corrected. This
+#       # is done by biasing the head direction after scanning for obstacles
+#       # NOTE: NOT YET FULLY IMPLEMENTED
+#       dh = self.currHead -self.cpsTargetHead
+#       tb = dh *cfg.HEAD_ADJUST_FACT if abs(dh) > cfg.HEAD_ADJUST_THR else 0
+#
+#     # ****************************************
+#     # ****************************************
+#     # ****************************************
+#     """
+#     elif cfg.DO_FOLLOW_BLOB:
+#       # TODO
+#       xy = self.Camera.getBestBlob(5, 0.60)
+#       isBlob = not xy is None
+#     """
+#     # ****************************************
+#     # ****************************************
+#     # ****************************************
+#
+#     o = False
+#     c = False
+#     l = len(self._scanPos) -1
+#     self.ServoRangingSensor.angle = cfg.SCAN_DIST_SERVO
+#     if self.nRangingSensor == 1:
+#       # Only one ranging sensor, therefore scan the head back and forth
+#       # (as determined in `hexbug_config.py`) to cover the ground in front
+#       # of the robot
+#       for iPos, Pos in enumerate(self._scanPos):
+#         # Turn head into scan position; in the first turn account for a
+#         # turning bias resulting from the find light behaviour
+#         b = 0 if iPos < l else bias
+#         self.MotorTurn.speed = cfg.SPEED_SCAN *(-1,1)[Pos < 0]
+#         self.spin_ms(abs(Pos) +b)
+#         self.MotorTurn.speed = 0
+#         # Measure distance for this position ...
+#         d = int(self.RangingSensor[0].range_cm)
+#         self._distData[self._iScanPos[iPos]] = d
+#         # ... check if distance within the danger-free range
+#         o = o or (d < cfg.DIST_OBST_CM)
+#         c = c or (d > cfg.DIST_CLIFF_CM)
+#     else:
+#       # Several ranging sensors installed in an array, therefore head scans
+#       # are not needed
+#       for iPos in range(self.nRangingSensor):
+#         # Read distance from this ranging sensor ...
+#         d = int(self.RangingSensor[iPos].range_cm)
+#         if cfg.DIST_SMOOTH >= 2:
+#           d = int(self._distDataFilters[iPos].mean(d))
+#         self._distData[iPos] = d
+#         # ... check if distance within the danger-free range
+#         o = o or (d < cfg.DIST_OBST_CM)
+#         c = c or (d > cfg.DIST_CLIFF_CM)
+#
+#       if True: #not DO_FOLLOW_BLOB: #isBlob:
+#         # Turn the head slighly to acount for (1) any bias that keeps the
+#         # robot from walking straight and (2) any turning bias resulting from
+#         # the find light behaviour
+#         self.MotorTurn.speed = cfg.SPEED_SCAN *(-1,1)[cfg.IR_SCAN_BIAS_F < 0]
+#         td = abs(cfg.IR_SCAN_BIAS_F *200) +bias
+#         self.spin_ms(td)
+#         self.MotorTurn.speed = 0
+#         # Make sure that the robot waits a minimum duration before returning
+#         # to the main loop
+#         sd = cfg.SPEED_BACK_DELAY//3 -td
+#         if sd > 0:
+#           self.spin_ms(sd)
+#
+#     # ****************************************
+#     # ****************************************
+#     # ****************************************
+#     """
+#     if isBlob:
+#       self.debug.append("{0:.2f},{1:.2f} -> {2} ({3:.2f})".format(xy[0], xy[1],
+#                         "turn left" if xy[0] < 0 else "turn right",
+#                         abs(xy[0]/4)))
+#       print(self.debug[0])
+#       #self.MotorWalk.speed = 0
+#       c = 0
+#       d = 0
+#       if abs(xy[0]) > 0.1:
+#         d = 1 if xy[0] > 0 else -1
+#       self.MotorTurn.speed = int(SPEED_SCAN *d *abs(xy[0]/4) *5)
+#       self.spin_ms(100)
+#       self.MotorTurn.speed = 0
+#     """
+#     # ****************************************
+#     # ****************************************
+#     # ****************************************
+#
+#     # Remember turning bias and return result
+#     self._turnBias = bias
+#     return 1 if c else -1 if o else 0
+#
+#   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   def lookAround(self):
+#     """ Make an appearance of "looking around"
+#     """
+#     # Stop all motors and change state
+#     self.MotorWalk.speed = 0
+#     self.MotorTurn.speed = 0
+#     prevState = self.state
+#     self.state = STATE_LOOKING
+#     maxPit = max(cfg.MAX_DIST_SERVO, cfg.MIN_DIST_SERVO)
+#
+#     # Move head and IR distance sensor at random, as if looking around
+#     nSacc = random.randint(4, 10)
+#     yaw = 0
+#     pit = cfg.SCAN_DIST_SERVO
+#     try:
+#       for i in range(nSacc):
+#         if self.onHold:
+#           break
+#         dYaw = random.randint(-800, 800)
+#         yaw += dYaw
+#         dir  = -1 if dYaw < 0 else 1
+#         pit += random.randint(-10,15)
+#         pit  = min(max(0, pit), maxPit)
+#         self.ServoRangingSensor.angle = pit
+#         self.MotorTurn.speed = cfg.SPEED_TURN *dir
+#         self.spin_ms(abs(dYaw))
+#         self.MotorTurn.speed = 0
+#         self.spin_ms(random.randint(0, 500))
+#     finally:
+#       # Stop head movement, if any, move the IR sensor back into scan
+#       # position and change back state
+#       self.MotorTurn.speed = 0
+#       self.ServoRangingSensor.angle = cfg.SCAN_DIST_SERVO
+#       self.state = prevState
+#
+#       # If compass is used, set new target heading
+#       if cfg.DO_WALK_STRAIGHT and not cfg.DO_FIND_LIGHT:
+#         self._targetHead = self.Compass.get_heading()
+#
+#   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   def lookAtBlob(self, minBlobArea, minBlobProb):
+#     """ Look at (heat) blob
+#     """
+#     # Stop all motors and change state
+#     self.MotorWalk.speed = 0
+#     self.MotorTurn.speed = 0
+#     prevState = self.state
+#     self.state = STATE_SEEK_BLOB
+#     maxPit = max(cfg.MAX_DIST_SERVO, cfg.MIN_DIST_SERVO)
+#     dxy = self.Camera.resolution
+#     dx2 = dxy[0]/2
+#     pit = cfg.SCAN_DIST_SERVO
+#     pBl = minBlobProb/100
+#     xF  = TemporalFilter(3)
+#     yF  = TemporalFilter(3)
+#
+#     # Move head towards a blob if one is detected
+#     try:
+#       for i in range(cfg.BLOB_ROUNDS):
+#         if self.onHold:
+#           break
+#         xy = self.Camera.getBestBlob(minBlobArea, pBl)
+#         if not xy is None:
+#           # Suitable blob found
+#           xBl = xF.mean(xy[0])
+#           yBl = yF.mean(xy[1])
+#           xdir = 0
+#           if abs(xBl) > cfg.BLOB_MIN_XY_OFFS:
+#             xdir = 1 if xBl > 0 else -1
+#           ydir = 0
+#           if abs(yBl) > cfg.BLOB_MIN_XY_OFFS:
+#             ydir = cfg.BLOB_YSTEP if yBl > 0 else -cfg.BLOB_YSTEP
+#           pit += ydir *abs(yBl/dx2)
+#           pit = int(min(max(-maxPit, pit), maxPit))
+#           self.ServoRangingSensor.angle = pit
+#           ssc = cfg.SPEED_SCAN
+#           self.MotorTurn.speed = int(ssc *xdir *abs(xBl/dx2) *cfg.BLOB_TSF)
+#           self.spin_ms(cfg.BLOB_SPIN_MS)
+#           self.MotorTurn.speed = 0
+#         else:
+#           self.spin_ms(cfg.BLOB_SPIN_MS)
+#     finally:
+#       # Stop head movement, if any, move the IR sensor back into scan
+#       # position and change back state
+#       self.MotorTurn.speed = 0
+#       self.ServoRangingSensor.angle = cfg.SCAN_DIST_SERVO
+#       self.state = prevState
+#
+#   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   def nap(self):
+#     """ Take a nap
+#     """
+#     # Remember state, switch off motors and move sensor arm into neutral
+#     prevState = self.state
+#     self.state = gkb.STATE_WAKING_UP
+#     self.housekeeper()
+#     self.MotorWalk.speed = 0
+#     self.MotorTurn.speed = 0
+#     self.ServoRangingSensor.angle = 0
+#
+#     # Dim the NeoPixel
+#     for i in range(10, -1, -1):
+#       self.dimPixel(i/10.0)
+#       self.spin_ms(250)
+#
+#     # "Drop" sensor arm
+#     for p in range(0, cfg.SCAN_DIST_SERVO, -1):
+#       self.ServoRangingSensor.angle = p
+#       self.spin_ms(10)
+#
+#     # Flash NeoPixel ...
+#     self.dimPixel(1.0)
+#     self.spin_ms(100)
+#     self.dimPixel(0.0)
+#
+#     # ... and enter sleep mode for a random number of seconds
+#     self.sleepLightly(random.randint(cfg.NAP_FROM_S, cfg.NAP_TO_S))
+#
+#     # Wake up, resume previous state and move sensor arm into scan position
+#     self.state = prevState
+#     self.ServoRangingSensor.angle = cfg.SCAN_DIST_SERVO
+#     self.housekeeper()
+#
+#     # Bring up NeoPixel again
+#     for i in range(0, 11):
+#       self.dimPixel(i/10.0)
+#       self.spin_ms(250)
+#
+#   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#   def getDist(self, angle=0, trials=1, channel=0):
+#     """ Test function to determine the relevant IR distances.
+#         Moves IR ranging sensor to "angle" and measures/prints distance
+#         "trial" times.
+#     """
+#     self.ServoRangingSensor.angle = angle
+#     self.spin_ms(200)
+#     for i in range(trials):
+#       self.update()
+#       s = ""
+#       for ir in self.RangingSensor:
+#         s += "{0} ".format(ir.range_cm)
+#       print(s)
+#       self.spin_ms(0 if trials <= 1 else 250)
+#
+# # ----------------------------------------------------------------------------
