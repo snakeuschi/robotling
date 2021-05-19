@@ -49,66 +49,8 @@ def main():
             # the following code
             lastTurnDir = 0
             continue
+          r._t.spin()
 
-          # Sometines just look around
-          if random.randint(1,1000) <= cfg.DO_LOOK_AROUND:
-            r.lookAround()
-            continue
-
-          # Sometines sleep
-          if random.randint(1,1000) <= cfg.DO_TAKE_NAPS:
-            r.sleepLightly()
-            continue
-
-          # If blob following behaviour is activated, check for blobs every
-          # 10th round
-          if cfg.DO_FOLLOW_BLOB and round % 20 == 0:
-            r.lookAtBlob(cfg.BLOB_MIN_AREA, cfg.BLOB_MIN_PROB)
-            continue
-
-          # Check if obstacle or cliff
-          r.onTrouble = r.scanForObstacleOrCliff()
-
-          # Act on sensor data ...
-          if r.onTrouble == 0:
-            # No reason to stop, therefore walk
-            r.state = STATE_WALKING
-            r.MotorWalk.speed = cfg.SPEED_WALK
-            if not r.turnStats == 0:
-              # Slowly "forget" the unsuccessful turn direction
-              r.turnStats += MEM_DEC if r.turnStats < 0 else -MEM_DEC
-            lastTurnDir = 0
-
-          elif r.onTrouble < 0:
-            # Obstacle detected -> Stop, turn in a random direction to check
-            # (in the next spin) again for obstacles
-            r.state = STATE_OBSTACLE
-            r.MotorWalk.speed = 0
-            r.spin_ms(50)
-            lastTurnDir = r._nextTurnDir(lastTurnDir)
-            r.MotorTurn.speed = cfg.SPEED_TURN *lastTurnDir
-            r.spin_ms(cfg.SPEED_TURN_DELAY)
-            r.MotorTurn.speed = 0
-
-          else:
-            # Cliff detected -> Stop, walk back a tad, turn in a random
-            # direction to check (in the next spin) again for obstacles
-            r.state = STATE_CLIFF
-            r.MotorWalk.speed = 0
-            #r.spin_ms(500)
-            r.spin_ms(100)
-            r.MotorWalk.speed = -cfg.SPEED_WALK
-            r.spin_ms(cfg.SPEED_BACK_DELAY)
-            r.MotorWalk.speed = 0
-            lastTurnDir = r._nextTurnDir(lastTurnDir)
-            r.MotorTurn.speed = cfg.SPEED_TURN *lastTurnDir
-            r.spin_ms(cfg.SPEED_TURN_DELAY*2)
-            r.MotorTurn.speed = 0
-
-          # If compass is used and a heading was chosen (because of cliff or
-          # obstacle), save this as new target heading
-          if r.onTrouble != 0 and cfg.DO_WALK_STRAIGHT:
-            r._targetHead = r.Compass.getHeading()
 
         finally:
           # Make sure the robotling board get updated at least once per loop
